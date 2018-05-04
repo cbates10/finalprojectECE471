@@ -2,6 +2,8 @@
 #include <fstream>
 #include <cstdlib>
 #include <vector>
+#include <dirent.h>
+#include <sys/stat.h>
 #include "Matrix.h"
 #include "Pr.h"
 #include <string>
@@ -11,8 +13,23 @@
 #include <algorithm>
 #include <chrono>
 
+
+/* Time calculations made using the chrono library from c++ 14 */
+
 using namespace std;
 using namespace std::chrono;
+
+/* Index class used to keep index values grouped together with distance values */
+class index{
+  public:
+	double get_dist() { return distsqr; }
+	int get_line() { return line; }
+	bool operator<(const index &rhs) const{ return distsqr < rhs.distsqr; }
+	index(double dist, int ind) { distsqr = dist; line = ind; }
+  private: 
+	double distsqr;
+	int line;
+};
 
 /* Initial normalization of training data */
 void normalizeinit(Matrix &values, Matrix &means, vector<double> &std){
@@ -418,3 +435,122 @@ void solve_accuracy(Matrix &values, Matrix &mat_c1, Matrix &mat_c2, Matrix &mean
   return;
 }
 
+int main(int argc, char **argv){
+  struct stat buf;
+  struct dirent *de, *subde;
+  DIR *d, *subd;
+  char cbuf[1000];
+  string sbuf, line;
+  ifstream fin;
+  float tmpf;
+  vector< double > std;
+  vector< float > feat;
+  vector< vector<float> > wordfeat;
+  vector< vector< vector<float> > > features;
+  vector<Matrix> traindat;
+  vector<Matrix> train_means;
+  Matrix traindat_total;
+  Matrix means;
+  int count = 0;
+
+  d = opendir(argv[1]);
+  for(de = readdir(d); de != NULL; de = readdir(d)){
+	sbuf = string(de->d_name);
+    if(sbuf != "." && sbuf != ".."){
+	  sprintf(cbuf, "%s/%s", argv[1], de->d_name);
+	  cout << "Processing " << cbuf << endl;
+	  subd = opendir(cbuf);
+	  for(subde = readdir(subd); subde != NULL; subde = readdir(subd)){
+		sprintf(cbuf, "%s/%s/%s", argv[1], de->d_name, subde->d_name);
+		fin.open(cbuf);
+		if(!fin.is_open()){
+          perror(cbuf);
+		  exit(1);
+		}
+		while(getline(fin, line)){
+          stringstream ss(line);
+		  while(ss >> tmpf){
+            feat.push_back(tmpf);
+		  }
+		}
+		if(!feat.empty())
+		  wordfeat.push_back(feat);
+		feat.clear();
+		fin.close();
+	  }
+	  closedir(subd);
+	  features.push_back(wordfeat);
+	  wordfeat.clear();
+    }
+  }
+  traindat_total = Matrix(count, features[0][0].size());
+  count = 0;
+  for(int i = 0; i < features.size(); i++){
+    for(int j = 0; j < features[i].size(); j++){
+	  for(int z = 0; z < features[i][i].size(); z++){
+		traindat_total(count,z) = features[i][j][z];
+	  }
+	  count++;
+	}
+  }
+  // TODO read in testing data 
+  normalizeinit(traindat_total, means, std);
+  // TODO normalize testing data
+  count = 0;
+  for(int i = 0; i < features.size(); i++){
+    traindat.push_back(subMatrix(traindat_total, count, 0, count + features[i].size() - 1, traindat_total.getCol() - 1));
+	count += features[i].size();
+  }
+  for(int i = 0; i < traindat.size(); i++){
+    train_means.push_back(mean(traindat[i],traindat[i].getCol()));
+  }
+
+  /* PRINCIPAL COMPONENT ANALYSIS */
+
+  Matrix Sigma = cov(traindat_total, traindat_total.getCol());
+
+  Matrix eigvec(traindat_total.getCol(), traindat_total.getCol());
+  Matrix eigval(traindat_total.getCol(), 1);
+
+  jacobi(Sigma, eigval, eigvec);
+
+  cout << "Eigenvalues : " << endl << eigval << endl << "Eigenvectors : " << endl << eigvec << endl;
+
+  int j = Sigma.getRow() -1; //Index value of row
+  int eigsum = 0, eigsum2 = 0;
+  for(int i = 0; i < Sigma.getRow(); i++){
+    eigsum += eigval(i,0);
+  }
+  
+  vector<int> eigremoved;
+  double tmpval, error_val = 0;
+  while(error_val < 0.8){
+    tmpval = error_val;
+	eigsum2 += eigval(j, 0);
+    error_val = eigsum2/eigsum;
+	eigremoved.push_back(j--);
+  }
+
+  eigremoved.pop_back();
+  error_val = tmpval;
+  cout << "eigenvalue error tolerance" << endl << error_val << endl;
+  cout << "Eigenvalues removed " << endl;
+  for(int i = 0; i < eigremoved.size(); i++){
+    cout << eigval(eigremoved[i],0) << endl;
+  }
+
+  Matrix PCA_eigvec = subMatrix(eigvec, 0, 0, eigvec.getRow() -1, eigremoved.back() - 1);
+  cout << "PCA eigenvalue matrix " << endl << PCA_eigvec << endl;
+
+  /* PCA VALUES USED FOR CALCULATIONS */
+  Matrix tX = transpose(transpose(PCA_eigvec)->*transpose(traindat_total));
+  // TODO PCA on testing data
+  vector<Matrix> tmats;
+  for(int i = 0; i < traindat.size(); i++){
+    tmats.push_back(transpose(transpose(PCA_eigvec)->*transpose(traindat[i])));
+  }
+  vector<Matrix> tmeans;
+  for(int i = 0; i < tmats.size(); i++){
+    //tmeans.push_back(mean(tmats[i], tmats[i].getCol()));
+  }
+}
