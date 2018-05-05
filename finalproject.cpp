@@ -265,55 +265,70 @@ void cross_kNN(Matrix traininit, vector< vector<int> > cross_val){
 }
 
 /* Case I Euclidean min discriminant function */
-int Euclidean_min(Matrix values, Matrix mean1, Matrix mean2, double prior1, double prior2, double var){
+int Euclidean_min(Matrix values, vector<Matrix> means, vector<double> prior, double var){
   double result;
-  double class1, class2;
-  Matrix mat_1 = transpose((1/var)*mean1)->*transpose(values)+(-1/(2*var))*transpose(mean1)->*mean1 + log(prior1);
-  class1 = mat_1(0,0);
-  Matrix mat_2 = transpose((1/var)*mean2)->*transpose(values)+(-1/(2*var))*transpose(mean2)->*mean2 + log(prior2);
-  class2 = mat_2(0,0);
-  if(class1 > class2)
-	result = 0;
-  else 
-	result = 1;
+  double max;
+  vector<double> outcomes;
+  for(int i = 0; i < means.size(); i++){
+    Matrix mat_1 = transpose((1/var)*means[i])->*transpose(values)+(-1/(2*var))*transpose(means[i])->*means[i] + log(prior[i]);
+    outcomes.push_back(mat_1(0,0));
+  }
+  max = 0;
+  for(int i = 0; i < outcomes.size(); i++){
+    if(outcomes[i] > max){
+      result = i;
+	  max = outcomes[i];
+	}
+  }
   return result;
 }
 
 /* Case II Mahalanobis discriminant function */
-int Mahalanobis_min(Matrix values, Matrix mean1, Matrix mean2, Matrix covariance, double prior1, double prior2){
+int Mahalanobis_min(Matrix values, vector<Matrix> means, Matrix covariance, vector<double> prior){
   double result;
-  double class1, class2;
-  Matrix mat_1 = transpose(covariance->*mean1)->*transpose(values) + (-0.5)*transpose(mean1)->*covariance->*(mean1) + log(prior1);
-  class1 = mat_1(0,0);
-  Matrix mat_2 = transpose(covariance->*mean2)->*transpose(values) + (-0.5)*transpose(mean2)->*covariance->*(mean2) + log(prior2);
-  class2 = mat_2(0,0);
-  if(class1 > class2)
-	result = 0;
-  else
-	result = 1;
+  double max;
+  vector<double> outcomes;
+  for(int i = 0; i < means.size(); i++){
+    Matrix mat_1 = transpose(covariance->*means[i])->*transpose(values) + (-0.5)*transpose(means[i])->*covariance->*(means[i]) + log(prior[i]);
+    outcomes.push_back(mat_1(0,0));
+  }
+  max = 0;
+  for(int i = 0; i < outcomes.size(); i++){
+    if(outcomes[i] > max){
+      result = i;
+	  max = outcomes[i];
+	}
+  }
   return result;
 }
 
 /* Case III Mahalanobis discriminant function, no assumptions on covariance values */
-int Hyper_Quadric(Matrix values, Matrix mean1, Matrix mean2, Matrix icovariance1, Matrix icovariance2, double prior1, double prior2, double det1, double det2){
+int Hyper_Quadric(Matrix values, vector<Matrix> means, vector<Matrix> icovariances, vector<double> prior, vector<double> det){
   double result;
-  double class1, class2;
-  Matrix mat_1 = values->*((-0.5)*icovariance1)->*transpose(values) + transpose(icovariance1->*mean1)->*transpose(values) + (-0.5)*transpose(mean1)->*icovariance1->*mean1 -(0.5)*log(det1) + log(prior1);
-  class1 = mat_1(0,0);
-  Matrix mat_2 = values->*((-0.5)*icovariance2)->*transpose(values) + transpose(icovariance2->*mean2)->*transpose(values) + (-0.5)*transpose(mean2)->*icovariance2->*mean2 -(0.5)*log(det2) + log(prior2);
-  class2 = mat_2(0,0);
-  if(class1 > class2)
-    result = 0;
-  else 
-	result = 1;
+  double max;
+  for(int i = 0; i < means.size(); i++){
+    Matrix mat_1 = values->*((-0.5)*icovariances[i])->*transpose(values) + transpose(icovariances[i]->*means[i])->*transpose(values) + (-0.5)*transpose(means[i])->*icovariances[i]->*means[i] -(0.5)*log(det[i]) + log(prior[i]);
+    outcomes.push_back(mat_1(0,0));
+  }
+  max = 0;
+  for(int i = 0; i < outcomes.size(); i++){
+    if(outcomes[i] > max){
+      result = i;
+	  max = outcomes[i];
+	}
+  }
   return result;
 }
-
+//TODO
 /* Solves for classication accuracy for each discriminant function. Arguments are the means, class matrices, and testing data set */
-void solve_accuracy(Matrix &values, Matrix &mat_c1, Matrix &mat_c2, Matrix &mean_c1, Matrix &mean_c2, int c1_size1, int c2_size1, double probc1, double probc2){
+void solve_accuracy(Matrix &values, vector<Matrix> traindat, vector<Matrix> means, int c1_size1, int c2_size1, vector<double> prior){
   Matrix line;
-  Matrix Sigma1 = cov(mat_c1, mat_c1.getCol());
-  Matrix Sigma2 = cov(mat_c2, mat_c2.getCol());
+//  Matrix Sigma1 = cov(mat_c1, mat_c1.getCol());
+//  Matrix Sigma2 = cov(mat_c2, mat_c2.getCol());
+  vector<Matrix> Sigmas;
+  for(int i = 0; i < traindat.size(); i++){
+    Sigmas.push_back(cov(traindat[i], traindat[i].getCol()));
+  }
 
   int first = 0;
 
@@ -483,6 +498,9 @@ int main(int argc, char **argv){
 	  wordfeat.clear();
     }
   }
+  for(int i = 0; i < features.size(); i++)
+	for(int j =0; j < features[i].size(); j++)
+	  count++;
   traindat_total = Matrix(count, features[0][0].size());
   count = 0;
   for(int i = 0; i < features.size(); i++){
@@ -514,17 +532,16 @@ int main(int argc, char **argv){
 
   jacobi(Sigma, eigval, eigvec);
 
-  cout << "Eigenvalues : " << endl << eigval << endl << "Eigenvectors : " << endl << eigvec << endl;
+  //cout << "Eigenvalues : " << endl << eigval << endl << "Eigenvectors : " << endl << eigvec << endl;
 
   int j = Sigma.getRow() -1; //Index value of row
-  int eigsum = 0, eigsum2 = 0;
+  double eigsum = 0, eigsum2 = 0;
   for(int i = 0; i < Sigma.getRow(); i++){
     eigsum += eigval(i,0);
   }
-  
   vector<int> eigremoved;
   double tmpval, error_val = 0;
-  while(error_val < 0.8){
+  while(error_val < 0.1){
     tmpval = error_val;
 	eigsum2 += eigval(j, 0);
     error_val = eigsum2/eigsum;
@@ -551,6 +568,42 @@ int main(int argc, char **argv){
   }
   vector<Matrix> tmeans;
   for(int i = 0; i < tmats.size(); i++){
-    //tmeans.push_back(mean(tmats[i], tmats[i].getCol()));
+    tmeans.push_back(mean(tmats[i], tmats[i].getCol()));
   }
+
+  /* FISHER LINEAR */
+  Matrix summationtmp = train_means[0] * traindat[0].getRow();
+  for(int i = 1; i < features.size(); i++){
+    summationtmp += train_means[i] * traindat[i].getRow();
+  }
+  Matrix mean_total = (1/traindat_total.getCol()) * summationtmp;
+  summationtmp = traindat[0].getCol() * (train_means[0] - mean_total)->*transpose(train_means[0] - mean_total);
+  for(int i = 1; i < features.size(); i++){
+    summationtmp += traindat[i].getCol() * (train_means[i] - mean_total)->*transpose(train_means[i] - mean_total);
+  }
+  Matrix Between = summationtmp;
+
+  vector<Matrix> Sigmas;
+  for(int i = 0; i < traindat.size(); i++){
+    Sigmas.push_back(cov(traindat[i], traindat[i].getCol()));
+  }
+  Matrix Within = traindat[0].getRow() -1 * Sigmas[0];
+  for(int i = 1; i < traindat.size(); i++){
+    Within += traindat[i].getRow() - 1 * Sigmas[i];
+  }
+  Matrix inverseWithin = inverse(Within);
+  Matrix tmp = cov(inverseWithin->*Between, Between.getCol());
+  Matrix FLDproj(tmp.getCol(), tmp.getCol());
+  Matrix FLDeigvals(tmp.getCol(), 1);
+
+  jacobi(tmp, FLDeigvals, FLDproj);
+  
+  /* FISHER VALUES USED FOR CALCULATIONS */
+  Matrix fX = transpose(transpose(FLDproj)->*transpose(traindat_total));
+  // TODO FLD TEST 
+  vector<Matrix> fmats;
+  for(int i = 0; i < traindat.size(); i++){
+    fmats.push_back(transpose(transpose(FLDproj)->*transpose(traindat[i])));
+  }
+  // TODO 
 }
